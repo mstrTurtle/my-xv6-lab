@@ -315,6 +315,8 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  np->trace_mask = p->trace_mask; // fork时拷贝trace_mask
+
   return pid;
 }
 
@@ -653,4 +655,20 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// 获取进程数量
+uint64
+nproc(void)
+{
+  uint64 cnt = 0;
+  struct proc *p;
+    for(p = proc; p < &proc[NPROC]; p++) {// 遍历进程控制块PCB
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      cnt+=1;
+    }
+    release(&p->lock);
+  }
+  return cnt;
 }

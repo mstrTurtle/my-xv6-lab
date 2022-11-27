@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h" // 引入struct sysinfo的定义
 
 uint64
 sys_exit(void)
@@ -95,3 +96,36 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_trace(void)
+{
+  int n;
+
+  if(argint(0, &n) < 0)
+    return -1;
+  acquire(&tickslock);
+  struct proc* p = myproc();
+  p->trace_mask = n;
+  release(&tickslock);
+  return 0;
+}
+ 
+// get sysinfo
+uint64
+sys_sysinfo(void)
+{
+  uint64 info; // user pointer
+  struct sysinfo kinfo;
+  struct proc *p = myproc();
+  if(argaddr(0, &info) < 0){
+    return -1;
+  }
+  kinfo.freemem = freemem();
+  kinfo.nproc = nproc();
+  if(copyout(p->pagetable, info, (char*)&kinfo, sizeof(kinfo)) < 0){
+    return -1;
+  }
+  return 0;
+}
+

@@ -102,7 +102,28 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-  
+  // 按文档hint所述, 上锁. 保证多线程时不会产生竞争.
+  acquire(&e1000_lock);
+  uint32 index = regs[E1000_TDT];
+  // 如果检查到E1000_TXD_STAT_DD标志, 也就是队列满了, 那就报告错误.
+  if (!(tx_ring[index].status & E1000_TXD_STAT_DD)) {
+    release(&e1000_lock);
+    return -1;
+  }
+  // 适时释放mbuf
+  if (tx_mbufs[index]) {
+    mbuffree(tx_mbufs[index]);
+  }
+  // 依次填充tx_desc, 告诉网卡该做什么.
+  tx_ring[index].addr = (uint64)m->head;
+  tx_ring[index].length = (uint16)m->len;
+  tx_ring[index].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  tx_mbufs[index] = m;
+  // 网卡的TDT寄存器, 放的是下一步要放进的mbuf的相关信息的下标.
+  regs[E1000_TDT] = (index + 1) % TX_RING_SIZE;
+  // 按文档hint所述, 释放锁.
+  release(&e1000_lock);
+
   return 0;
 }
 
@@ -115,6 +136,26 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  // 这是接收的函数. 按照hint编写.
+  while (1) {
+    // 读寄存器, 看看下一个待读取的包在哪里.
+    uint32 index = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    // 检查是否有新包到达, 没新包则先返回.
+    if (!(rx_ring[index].status & E1000_RXD_STAT_DD)) {
+      return;
+    }
+    // 有新包到达, 则把mbuf长度字段填好, 并送给network stack继续处理.
+    // 所谓的mbuf, 就是给网卡用来DMA用的. 数据通过DMA硬件, 被直接传到mbuf里.
+    rx_mbufs[index]->len = rx_ring[index].length;
+    net_rx(rx_mbufs[index]);
+    // 原来那个mbuf被network stack占了, 现在需要新分配一个mbuf, 继续给网卡用.
+    rx_mbufs[index] = mbufalloc(0);
+    // 把mbuf的地址, 给环形队列对应元素设置一下. 而且状态也要清零.
+    rx_ring[index].addr = (uint64)rx_mbufs[index]->head;
+    rx_ring[index].status = 0;
+    // 最后把RDT设置成index, 告诉网卡下一个要处理的是哪个.
+    regs[E1000_RDT] = index;
+  }
 }
 
 void

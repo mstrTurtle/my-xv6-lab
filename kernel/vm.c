@@ -432,3 +432,30 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// 这是递归地打印页表
+void 
+vmPrintRec(pagetable_t pagetable, uint level) {
+  char* prefix;
+  if (level == 2) prefix = "..";
+  else if (level == 1) prefix = ".. ..";
+  else /*if (level == 0)*/ prefix = ".. .. ..";
+  for(int i = 0; i < 512; i++){ // 递归地打印各级页表的512项
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){ // 有效的页表
+      uint64 pa = PTE2PA(pte); // 将PTE中的虚拟地址转成pa物理地址
+      printf("%s%d: pte %p pa %p\n", prefix, i, pte, pa);
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 如果有下一级页表
+         vmPrintRec((pagetable_t)pa, level - 1); // 递归地执行打印
+      }
+    }
+  }
+}
+
+// 这是打印页表表头, 并且调用递归打印页表的函数
+void
+vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable);
+  vmPrintRec(pagetable, 2);
+}
+

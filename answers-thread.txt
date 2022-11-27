@@ -1,0 +1,4 @@
+Q: Why are there missing keys with 2 threads, but not with 1 thread? Identify a sequence of events with 2 threads that can lead to a key being missing. Submit your sequence with a short explanation in answers-thread.txt
+
+A:如果两个线程相互重叠地执行, 比如线程1先写, 线程2接着写, 此时线程1的key被线程2的key给掩盖了. 之后两个程序相互不知情, 于是发生缺少key的情形.
+

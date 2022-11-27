@@ -127,6 +127,15 @@ found:
     return 0;
   }
 
+  // 即: Don't forget to allocate and initialize the page in allocproc().
+  // 分配usyscall. 在那页上. 若失败, 需要捕获异常并清理.
+  if((p->usyscall = (struct usyscall *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  memmove(p->usyscall,&p->pid,8);
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -153,6 +162,13 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  
+  // 即: Make sure to free the page in freeproc().
+  // 清理页表的
+  if (p->usyscall)
+    kfree((void*)p->usyscall);
+  p->usyscall=0;
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -165,19 +181,19 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->state = UNUSED;
 }
-
+ 
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
 pagetable_t
 proc_pagetable(struct proc *p)
 {
   pagetable_t pagetable;
-
+ 
   // An empty page table.
   pagetable = uvmcreate();
   if(pagetable == 0)
     return 0;
-
+ 
   // map the trampoline code (for system call return)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
@@ -187,7 +203,7 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
-
+ 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
@@ -195,7 +211,18 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
-
+ 
+  // 即: You can perform the mapping in proc_pagetable() in kernel/proc.c.
+  // 即: You may find that mappages() is a useful utility.
+  // 把在内核分配的struct usyscall, 和USYSCALL这个VA对应的页面, 建立映射.
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+               (uint64)(p->usyscall), PTE_R | PTE_U) < 0){ // 即: Choose permission bits that allow userspace to only read the page.
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+ 
   return pagetable;
 }
 
@@ -206,6 +233,8 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  // 释放进程页表的时候, 顺便把映射取消了
+  uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 

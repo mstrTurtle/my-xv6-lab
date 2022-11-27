@@ -172,6 +172,8 @@ int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 // 从vm.c这个模块中, 暴露出vmprint的定义.
 void            vmprint(pagetable_t);
+// 暴露出walk, 给Detecting which pages have been accessed用.
+pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc);
 
 // plic.c
 void            plicinit(void);
